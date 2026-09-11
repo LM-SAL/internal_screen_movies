@@ -3,14 +3,18 @@ Very simple/rudimentary script to play movies in random order.
 """
 
 import logging
-import os
 import shutil
+import subprocess
 import time
 from pathlib import Path
 
-from config import FILENAME_PATTERN, PATHS, REQUIRED_PROGRAMS, SAMPLE_FREQUENCY
+from config import FILENAME_PATTERN, PATHS, VLC
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+HERE = Path(__file__).resolve().parent
+PLAYLIST = HERE / "playlist.m3u"
 
 
 def timeit(func):
@@ -21,7 +25,7 @@ def timeit(func):
     def wrapper(*args, **kwargs):
         start = time.time()
         result = func(*args, **kwargs)
-        logging.info(f"Time taken to execute {func.__name__}: {time.time() - start} seconds.")  # NOQA: G004
+        logger.info(f"Time taken to execute {func.__name__}: {time.time() - start} seconds.")  # NOQA: G004
         return result
 
     return wrapper
@@ -30,17 +34,16 @@ def timeit(func):
 @timeit
 def check_everything_is_installed() -> None:
     """
-    Check if all required programs are installed.
+    Check that VLC is installed.
 
     Raises
     ------
-    ModuleNotFoundError
-        If any of the required programs are not installed.
+    FileNotFoundError
+        If VLC cannot be found.
     """
-    for program in REQUIRED_PROGRAMS:
-        if shutil.which(program) is None:
-            msg = f"Error: {program} is not installed."
-            raise ModuleNotFoundError(msg)
+    if shutil.which(VLC) is None:
+        msg = f"Error: {VLC} is not installed."
+        raise FileNotFoundError(msg)
 
 
 @timeit
@@ -59,73 +62,51 @@ def check_directories_mounted() -> None:
             raise OSError(msg)
 
 
-@timeit
-def filter_files_by_size(file_paths: list[str | Path], min_size_mb: float = 1) -> list[str]:
+def known_bad_list(base_path: Path) -> Path:
     """
-    Filter a list of files and return only those larger than the specified
-    size.
-
-    Parameters
-    ----------
-    file_paths : List[Union[str, Path]]
-        List of file paths to check.
-    min_size_mb : float
-        Minimum file size in megabytes, the default is 1.
-
-    Returns
-    -------
-    List[Str]
-        List of strs for files larger than the minimum size.
+    The file listing movies under ``base_path`` that VLC cannot play.
     """
-    min_size_bytes = min_size_mb * 1024 * 1024
-    result = []
-    for file_path in file_paths:
-        file_size = Path(file_path).stat().st_size
-        if file_size >= min_size_bytes:
-            result.append(file_path)
-    return result
+    mod = "IRIS" if "iris" in str(base_path) else "AIA"
+    return HERE / f"KNOWN_BAD_{mod}.txt"
 
 
 @timeit
-def check_videos(file_paths: list[str | Path]) -> list[str]:
+def check_videos(file_paths: list[str], known_bad: Path) -> list[str]:
     """
-    Using CV check if a video is legit.
+    Using CV check if a video is legit; append the ones that are not to
+    ``known_bad``.
 
     Parameters
     ----------
-    file_paths : List[Union[str, Path]]
+    file_paths : List[Str]
         List of file paths to check.
+    known_bad : Path
+        The known-bad list to extend.
 
     Returns
     -------
     List[Str]
         List of strs for legit movies.
     """
-    import cv2
+    import cv2  # NOQA: PLC0415
 
     result = []
     bad_movies = []
     for file_path in file_paths:
         video = cv2.VideoCapture(file_path)
-        if not video.isOpened():
-            bad_movies.append(file_path)
-            continue
-        ret, _ = video.read()
-        if not ret:
-            bad_movies.append(file_path)
-            continue
+        ok = video.isOpened() and video.read()[0]
         video.release()
-        result.append(file_path)
-    mod = "IRIS" if "iris" in file_path[0] else "AIA"
-    Path(f"bad_movies_{mod}.txt").unlink(missing_ok=True)
-    Path(f"bad_movies_{mod}.txt").write_text("\n".join(bad_movies))
+        (result if ok else bad_movies).append(file_path)
+    with known_bad.open("a") as file:
+        file.writelines(f"{path}\n" for path in bad_movies)
     return result
 
 
 @timeit
-def get_paths_for_movies(base_path: Path, filename: str) -> list:
+def get_paths_for_movies(base_path: Path, filename: str) -> list[str]:
     """
-    Get all the paths for the movies in the given directory.
+    Get all the paths for the movies in the given directory, minus the known
+    bad ones.
 
     Parameters
     ----------
@@ -139,16 +120,37 @@ def get_paths_for_movies(base_path: Path, filename: str) -> list:
     list
         A list of paths to the movies.
     """
-    mod = "IRIS" if "iris" in str(base_path) else "AIA"
-    files = list(map(str, base_path.rglob(filename)))
-    with Path(f"KNOWN_BAD_{mod}.txt").open() as file:
-        content = file.read().strip()
-        bad_files = content.split()
-        return list(set(files) - set(bad_files))
+    files = set(map(str, base_path.rglob(filename)))
+    bad_files = set(known_bad_list(base_path).read_text().splitlines())
+    return sorted(files - bad_files)
+
+
+def balance(sources: list[list[str]]) -> list[str]:
+    """
+    Repeat each source so that every source contributes roughly the same number
+    of playlist entries.
+
+    VLC's --random picks uniformly over playlist entries, so repetition is the only way to weight a source.
+
+    Parameters
+    ----------
+    sources : list[list[str]]
+        One non-empty list of movie paths per source.
+
+    Returns
+    -------
+    list[str]
+        The combined, weighted list of movie paths.
+    """
+    target = max(len(source) for source in sources)
+    movies = []
+    for source in sources:
+        movies.extend(source * round(target / len(source)))
+    return movies
 
 
 @timeit
-def create_playlist(movies: list) -> None:
+def create_playlist(movies: list[str]) -> None:
     """
     Create a playlist m3u file.
 
@@ -157,43 +159,36 @@ def create_playlist(movies: list) -> None:
     movies : list
         A list of paths to the movies.
     """
-    logging.info("Removing existing(?) playlist.m3u")
-    Path("playlist.m3u").unlink(missing_ok=True)
-    logging.info("Creating playlist.m3u")
-    Path("playlist.m3u").write_text("\n".join(movies))
+    logger.info("Writing %s", PLAYLIST)
+    PLAYLIST.write_text("\n".join(movies))
 
 
 @timeit
 def play_movies_in_random_order() -> None:
     """
-    Play the movies in random order using a playlist.
-
-    Parameters
-    ----------
-    movies : list
-        A list of paths to the movies.
+    Play the playlist in random order using VLC.
     """
-    if not Path("playlist.m3u").exists():
-        msg = "playlist.m3u not found"
-        raise FileNotFoundError(msg)
-    # Assuming the first program in the list is the default program to play the movies.
-    os.system(f"{REQUIRED_PROGRAMS[0]} --rate 0.5 --fullscreen --random --loop playlist.m3u")  # NOQA: S605
+    subprocess.run([VLC, "--rate", "0.5", "--fullscreen", "--random", "--loop", str(PLAYLIST)], check=True)  # NOQA: S603
 
 
 if __name__ == "__main__":
     check_everything_is_installed()
     check_directories_mounted()
-    # Uses CV to open the file to verify its a legit movie
-    # Slows down the code quite a bit
+    # Uses CV to open every file to verify it is a legit movie and grow KNOWN_BAD_*.txt.
+    # Slows down the code quite a bit.
     CHECK_MOVIES = False
-    movies = []
-    for base_path, sample_frequency, filename_pattern in zip(PATHS, SAMPLE_FREQUENCY, FILENAME_PATTERN, strict=True):
+    sources = []
+    for base_path, filename_pattern in zip(PATHS, FILENAME_PATTERN, strict=True):
         if base_path is None:
             continue
-        logging.info(f"Searching for movies in {base_path}")  # NOQA: G004
+        logger.info("Searching for movies in %s", base_path)
+        found = get_paths_for_movies(base_path, filename_pattern)
         if CHECK_MOVIES:
-            movies.extend(check_videos(get_paths_for_movies(base_path, filename_pattern)) * sample_frequency)
-        else:
-            movies.extend(get_paths_for_movies(base_path, filename_pattern) * sample_frequency)
-    create_playlist(movies)
+            found = check_videos(found, known_bad_list(base_path))
+        if not found:
+            msg = f"No movies found in {base_path}"
+            raise FileNotFoundError(msg)
+        logger.info("Found %d movies in %s", len(found), base_path)
+        sources.append(found)
+    create_playlist(balance(sources))
     play_movies_in_random_order()
