@@ -10,6 +10,6 @@ Needs Python 3.10+ and VLC (on macOS the app bundle is found automatically).
 
     python display_movies.py
 
-`KNOWN_BAD_*.txt` list files that do not play. To regenerate them, set
+`KNOWN_BAD_*.txt` list files that do not play and are skipped. To find new ones, set
 `CHECK_MOVIES = True` in `display_movies.py` (needs `pip install -r requirements.txt`);
-it opens every file with OpenCV and writes fresh `bad_movies_*.txt` lists.
+it opens every remaining file with OpenCV and appends the failures to `KNOWN_BAD_*.txt`.

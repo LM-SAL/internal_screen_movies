@@ -62,15 +62,26 @@ def check_directories_mounted() -> None:
             raise OSError(msg)
 
 
-@timeit
-def check_videos(file_paths: list[str]) -> list[str]:
+def known_bad_list(base_path: Path) -> Path:
     """
-    Using CV check if a video is legit.
+    The file listing movies under ``base_path`` that VLC cannot play.
+    """
+    mod = "IRIS" if "iris" in str(base_path) else "AIA"
+    return HERE / f"KNOWN_BAD_{mod}.txt"
+
+
+@timeit
+def check_videos(file_paths: list[str], known_bad: Path) -> list[str]:
+    """
+    Using CV check if a video is legit; append the ones that are not to
+    ``known_bad``.
 
     Parameters
     ----------
     file_paths : List[Str]
         List of file paths to check.
+    known_bad : Path
+        The known-bad list to extend.
 
     Returns
     -------
@@ -86,16 +97,16 @@ def check_videos(file_paths: list[str]) -> list[str]:
         ok = video.isOpened() and video.read()[0]
         video.release()
         (result if ok else bad_movies).append(file_path)
-    if file_paths:
-        mod = "IRIS" if "iris" in file_paths[0] else "AIA"
-        (HERE / f"bad_movies_{mod}.txt").write_text("\n".join(bad_movies))
+    with known_bad.open("a") as file:
+        file.writelines(f"{path}\n" for path in bad_movies)
     return result
 
 
 @timeit
 def get_paths_for_movies(base_path: Path, filename: str) -> list[str]:
     """
-    Get all the paths for the movies in the given directory, minus the known bad ones.
+    Get all the paths for the movies in the given directory, minus the known
+    bad ones.
 
     Parameters
     ----------
@@ -109,15 +120,15 @@ def get_paths_for_movies(base_path: Path, filename: str) -> list[str]:
     list
         A list of paths to the movies.
     """
-    mod = "IRIS" if "iris" in str(base_path) else "AIA"
     files = set(map(str, base_path.rglob(filename)))
-    bad_files = set((HERE / f"KNOWN_BAD_{mod}.txt").read_text().splitlines())
+    bad_files = set(known_bad_list(base_path).read_text().splitlines())
     return sorted(files - bad_files)
 
 
 def balance(sources: list[list[str]]) -> list[str]:
     """
-    Repeat each source so that every source contributes roughly the same number of playlist entries.
+    Repeat each source so that every source contributes roughly the same number
+    of playlist entries.
 
     VLC's --random picks uniformly over playlist entries, so repetition is the only way to weight a source.
 
@@ -157,14 +168,14 @@ def play_movies_in_random_order() -> None:
     """
     Play the playlist in random order using VLC.
     """
-    subprocess.run([VLC, "--rate", "0.5", "--fullscreen", "--random", "--loop", str(PLAYLIST)], check=False)  # NOQA: S603
+    subprocess.run([VLC, "--rate", "0.5", "--fullscreen", "--random", "--loop", str(PLAYLIST)], check=True)  # NOQA: S603
 
 
 if __name__ == "__main__":
     check_everything_is_installed()
     check_directories_mounted()
-    # Uses CV to open the file to verify its a legit movie
-    # Slows down the code quite a bit
+    # Uses CV to open every file to verify it is a legit movie and grow KNOWN_BAD_*.txt.
+    # Slows down the code quite a bit.
     CHECK_MOVIES = False
     sources = []
     for base_path, filename_pattern in zip(PATHS, FILENAME_PATTERN, strict=True):
@@ -173,7 +184,7 @@ if __name__ == "__main__":
         logger.info("Searching for movies in %s", base_path)
         found = get_paths_for_movies(base_path, filename_pattern)
         if CHECK_MOVIES:
-            found = check_videos(found)
+            found = check_videos(found, known_bad_list(base_path))
         if not found:
             msg = f"No movies found in {base_path}"
             raise FileNotFoundError(msg)
