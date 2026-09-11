@@ -3,13 +3,13 @@
 Simple script to find and display movies on an internal screen.
 
 It finds IRIS and SDO/AIA movies on the mounted network shares (paths in `config.py`),
-writes `playlist.m3u` with each source repeated so both contribute roughly equal
-numbers of entries, and plays it in VLC fullscreen, shuffled, looping, at half speed.
+keeps one entry per movie name (the IRIS share holds the same movie in several pod
+directories and again in the `orig` subdirectory of the pod that uploaded it), writes
+`playlist.m3u` with each source repeated so both contribute roughly equal numbers of
+entries, shuffles that list, and plays it in VLC fullscreen, looping, at half speed.
 
 Needs Python 3.10+ and VLC (on macOS the app bundle is found automatically).
 
     python display_movies.py
 
-`KNOWN_BAD_*.txt` list files that do not play and are skipped. To find new ones, set
-`CHECK_MOVIES = True` in `display_movies.py` (needs `pip install -r requirements.txt`);
-it opens every remaining file with OpenCV and appends the failures to `KNOWN_BAD_*.txt`.
+Files that do not play are left to VLC, which skips to the next entry by itself.
