@@ -258,3 +258,4 @@ package-lock.json
 package.json
 .prettierrc
 playlist.m3u
+bad_movies.csv

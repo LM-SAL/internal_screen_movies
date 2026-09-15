@@ -13,3 +13,12 @@ Needs Python 3.10+ and VLC (on macOS the app bundle is found automatically).
     python display_movies.py
 
 Files that do not play are left to VLC, which skips to the next entry by itself.
+
+To list the movies that cannot be played, so they can be reported to their creators:
+
+    python find_bad_movies.py
+
+This needs ffprobe (`brew install ffmpeg`). It checks every copy of every movie, opens
+each one and decodes a frame at the start and one near the end, and writes
+`bad_movies.csv` with the source, the creator (from the IRIS pod directory), the path and
+the problem.

@@ -14,6 +14,8 @@ SDO_MOVIES_PATH = Path("/viz2/media/SunInTime/")
 
 # macOS does not put the VLC binary on PATH.
 VLC = shutil.which("vlc") or "/Applications/VLC.app/Contents/MacOS/VLC"
+# Homebrew on Intel macOS installs here, which launchd jobs do not have on PATH.
+FFPROBE = shutil.which("ffprobe") or "/usr/local/bin/ffprobe"
 
 PATHS = (IRIS_MOVIES_PATH, SDO_MOVIES_PATH, HINODE_MOVIES_PATH)
 FILENAME_PATTERN = (IRIS_MOVIES_FILENAME, SDO_MOVIES_FILENAME, HINODE_MOVIES_FILENAME)
