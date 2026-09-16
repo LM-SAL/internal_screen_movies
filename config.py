@@ -1,21 +1,15 @@
-"""
-Basic Config items.
-"""
+"""Movie sources and external programs."""
 
 import shutil
 from pathlib import Path
 
-HINODE_MOVIES_FILENAME = "*mp4"
-HINODE_MOVIES_PATH = None
-IRIS_MOVIES_FILENAME = "*mp4"
-IRIS_MOVIES_PATH = Path("/irisa/mod/podmovie/modvideos/")
-SDO_MOVIES_FILENAME = "AIAtriratio*.mp4"
-SDO_MOVIES_PATH = Path("/viz2/media/SunInTime/")
+# Each source is (directory, filename pattern); None disables a directory.
+SOURCES = (
+    (Path("/irisa/mod/podmovie/modvideos/"), "*mp4"),
+    (Path("/viz2/media/SunInTime/"), "AIAtriratio*.mp4"),
+)
 
 # macOS does not put the VLC binary on PATH.
 VLC = shutil.which("vlc") or "/Applications/VLC.app/Contents/MacOS/VLC"
 # Homebrew on Intel macOS installs here, which launchd jobs do not have on PATH.
 FFPROBE = shutil.which("ffprobe") or "/usr/local/bin/ffprobe"
-
-PATHS = (IRIS_MOVIES_PATH, SDO_MOVIES_PATH, HINODE_MOVIES_PATH)
-FILENAME_PATTERN = (IRIS_MOVIES_FILENAME, SDO_MOVIES_FILENAME, HINODE_MOVIES_FILENAME)
