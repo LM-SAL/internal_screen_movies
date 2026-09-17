@@ -47,7 +47,7 @@ def mount_problem(directory: Path, timeout: float = MOUNT_CHECK_TIMEOUT) -> str 
 
 def check_directories_mounted() -> None:
     """Check that every configured source is accessible."""
-    for directory, _ in SOURCES:
+    for directory, *_ in SOURCES:
         if directory is None:
             continue
         problem = mount_problem(directory)
@@ -56,12 +56,26 @@ def check_directories_mounted() -> None:
             raise OSError(msg)
 
 
-def get_paths_for_movies(base_path: Path, filename: str) -> list[str]:
-    """Keep one copy per filename, preferring shallower paths over pod/orig copies."""
-    files = set(map(str, base_path.rglob(filename)))
+def get_paths_for_movies(base_path: Path, filename: str, *, prefer_encoded: bool = False) -> list[str]:
+    """Ignore ``orig`` directories and keep one copy of each movie."""
+    paths = {path for path in base_path.rglob(filename) if "orig" not in path.relative_to(base_path).parts}
+    if prefer_encoded:
+        names_by_parent: dict[Path, set[str]] = {}
+        for path in paths:
+            names_by_parent.setdefault(path.parent, set()).add(path.name)
+        replaced_names = {
+            path.name
+            for path in paths
+            if any(
+                other.startswith(f"{path.stem}_") and Path(other).suffix == path.suffix
+                for other in names_by_parent[path.parent]
+            )
+        }
+        paths = {path for path in paths if path.name not in replaced_names}
+
     seen: dict[str, str] = {}
-    for path in sorted(files, key=lambda path: (len(Path(path).parts), path)):
-        seen.setdefault(Path(path).name, path)
+    for path in sorted(paths, key=lambda path: (len(path.parts), path)):
+        seen.setdefault(path.name, str(path))
     return list(seen.values())
 
 
@@ -102,11 +116,11 @@ def run_playlist() -> None:
     check_everything_is_installed()
     check_directories_mounted()
     sources = []
-    for base_path, filename_pattern in SOURCES:
+    for base_path, filename_pattern, prefer_encoded in SOURCES:
         if base_path is None:
             continue
         logger.info("Searching for movies in %s", base_path)
-        found = get_paths_for_movies(base_path, filename_pattern)
+        found = get_paths_for_movies(base_path, filename_pattern, prefer_encoded=prefer_encoded)
         if not found:
             msg = f"No movies found in {base_path}"
             raise FileNotFoundError(msg)
