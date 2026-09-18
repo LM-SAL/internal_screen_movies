@@ -58,7 +58,10 @@ def check_directories_mounted() -> None:
 
 def get_paths_for_movies(base_path: Path, filename: str, *, prefer_encoded: bool = False) -> list[str]:
     """Ignore ``orig`` directories and keep one copy of each movie."""
-    paths = {path for path in base_path.rglob(filename) if "orig" not in path.relative_to(base_path).parts}
+    # rglob also matches directories, so keep only regular files.
+    paths = {
+        path for path in base_path.rglob(filename) if path.is_file() and "orig" not in path.relative_to(base_path).parts
+    }
     if prefer_encoded:
         names_by_parent: dict[Path, set[str]] = {}
         for path in paths:
